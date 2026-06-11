@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>SE Downloader Settings</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:"Segoe UI","PingFang SC",sans-serif;font-size:14px;
+     background:#f5f5f5;color:#1a1a1a;padding:24px;max-width:560px;margin:0 auto}
+@media(prefers-color-scheme:dark){
+  body{background:#1c1c1c;color:#e8e8e8}
+  .card{background:#2d2d2d;border-color:#3a3a3a}
+  input{background:#252525;border-color:#444;color:#e8e8e8}
+}
+h1{font-size:20px;margin-bottom:20px;color:#0078D4;display:flex;align-items:center;gap:10px}
+.card{background:white;border:1px solid #e0e0e0;border-radius:10px;padding:16px 20px;margin-bottom:16px}
+.card h2{font-size:13px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px}
+.row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f0f0}
+.row:last-child{border:none}
+.row-label{font-size:14px;font-weight:500}
+.row-desc{font-size:12px;color:#888;margin-top:2px}
+input[type=text],input[type=number]{width:100%;border:1px solid #d0d0d0;border-radius:6px;
+  padding:8px 10px;font-size:13px;outline:none;margin-top:8px;font-family:inherit}
+input:focus{border-color:#0078D4}
+.toggle{width:40px;height:22px;background:#ccc;border-radius:11px;position:relative;
+        cursor:pointer;transition:background .2s;border:none;flex-shrink:0}
+.toggle.on{background:#0078D4}
+.toggle::after{content:"";position:absolute;width:18px;height:18px;background:white;
+               border-radius:50%;top:2px;left:2px;transition:left .2s}
+.toggle.on::after{left:20px}
+.btn-row{display:flex;gap:10px;margin-top:16px;align-items:center}
+button.primary{background:#0078D4;color:white;border:none;border-radius:6px;
+               padding:10px 28px;font-size:14px;cursor:pointer;font-weight:500}
+button.primary:hover{background:#106EBE}
+.saved{color:#107C10;font-size:13px}
+.tip{background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:12px;
+     font-size:13px;color:#1D4ED8;margin-bottom:16px;line-height:1.6}
+</style>
+</head>
+<body>
+<h1>
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+    <circle cx="12" cy="12" r="11" fill="#0078D4"/>
+    <path d="M12 4v10M8 10l4 4 4-4M6 18h12" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  SE Downloader Settings
+</h1>
+
+<div class="tip">
+  💡 <strong>Installation</strong>: Open <code>chrome://extensions</code> (Chrome) or
+  <code>edge://extensions</code> (Edge), enable Developer Mode, click
+  "Load unpacked", and select the <code>browser_extension</code> folder.
+</div>
+
+<div class="card">
+  <h2>Connection</h2>
+  <div class="row">
+    <div><div class="row-label">App Port</div>
+    <div class="row-desc">Must match the port in SE Downloader settings (default 26339)</div></div>
+    <input type="number" id="appPort" style="width:100px;margin:0" min="1024" max="65535">
+  </div>
+</div>
+
+<div class="card">
+  <h2>Interception</h2>
+  <div class="row">
+    <div><div class="row-label">Auto Intercept</div>
+    <div class="row-desc">Automatically send matching downloads to the app</div></div>
+    <button class="toggle" id="tog-auto"></button>
+  </div>
+  <div class="row">
+    <div><div class="row-label">Intercept All Downloads</div>
+    <div class="row-desc">Ignore extensions, intercept every download</div></div>
+    <button class="toggle" id="tog-all"></button>
+  </div>
+  <div style="margin-top:12px">
+    <div class="row-label">File Extensions</div>
+    <div class="row-desc">Comma-separated, case-insensitive</div>
+    <input type="text" id="interceptExtensions" placeholder="zip,rar,7z,exe,mp4...">
+  </div>
+</div>
+
+<div class="card">
+  <h2>Notifications</h2>
+  <div class="row">
+    <div><div class="row-label">Success Notification</div>
+    <div class="row-desc">Show system notification when a download is intercepted</div></div>
+    <button class="toggle" id="tog-notif"></button>
+  </div>
+</div>
+
+<div class="btn-row">
+  <button class="primary" id="saveBtn">Save Settings</button>
+  <span class="saved" id="savedMsg" style="display:none">✓ Saved</span>
+</div>
+
+<script src="options.js"></script>
+</body>
+</html>

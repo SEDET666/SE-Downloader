@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "SE Downloader",
+  "version": "5.0.0",
+  "description": "Intercept browser downloads and send to SE Downloader (Chrome & Edge)",
+
+  "permissions": [
+    "downloads",
+    "downloads.open",
+    "contextMenus",
+    "storage",
+    "notifications",
+    "cookies",
+    "tabs",
+    "webRequest",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess"
+  ],
+
+  "host_permissions": [
+    "<all_urls>",
+    "http://127.0.0.1:*/"
+  ],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SE Downloader",
+    "default_icon": {
+      "16":  "icons/icon16.png",
+      "48":  "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+
+  "icons": {
+    "16":  "icons/icon16.png",
+    "48":  "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "options_page": "options.html",
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

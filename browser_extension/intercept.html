@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>SE Downloader - 正在接管下载...</title>
+<style>
+  body { font-family: "Segoe UI", sans-serif; display:flex; align-items:center;
+         justify-content:center; height:100vh; margin:0; background:#f0f4f8; }
+  .box { background:white; border-radius:12px; padding:32px 40px; box-shadow:0 4px 20px rgba(0,0,0,0.1);
+         text-align:center; max-width:480px; }
+  .icon { font-size:48px; margin-bottom:12px; }
+  h2 { color:#0078D4; margin:0 0 8px; }
+  p  { color:#555; margin:4px 0; font-size:14px; word-break:break-all; }
+  .url { background:#f5f5f5; border-radius:6px; padding:8px; font-size:12px;
+         color:#333; margin-top:12px; }
+  button { margin-top:16px; padding:10px 24px; background:#0078D4; color:white;
+           border:none; border-radius:6px; cursor:pointer; font-size:14px; }
+  button:hover { background:#106EBE; }
+  .fallback { font-size:12px; color:#888; margin-top:8px; }
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="icon">⬇️</div>
+  <h2>正在接管下载</h2>
+  <p>SE Downloader 扩展已拦截此下载链接</p>
+  <div class="url" id="urlBox">解析中...</div>
+  <button onclick="sendNow()">立即发送到下载器</button>
+  <p class="fallback"><a href="#" onclick="browserDownload()">改用浏览器下载</a></p>
+</div>
+<script>
+  const params = new URLSearchParams(location.search);
+  const url    = params.get("url") || document.referrer || "";
+  const referer = document.referrer || "";
+
+  document.getElementById("urlBox").textContent = url || "（未知链接）";
+
+  // Notify background SW
+  if (url) {
+    chrome.runtime.sendMessage({
+      type: "intercept_redirect", url, referer,
+    });
+  }
+
+  function sendNow() {
+    if (!url) return;
+    chrome.runtime.sendMessage({ type: "send_url", url, referer }, resp => {
+      if (resp?.ok) {
+        document.querySelector("h2").textContent = "✅ 已发送到下载器";
+        document.querySelector("button").style.display = "none";
+      } else {
+        alert("无法连接到 SE Downloader，请确认桌面应用已启动");
+      }
+    });
+  }
+
+  function browserDownload() {
+    window.location.href = url;
+  }
+</script>
+</body>
+</html>
