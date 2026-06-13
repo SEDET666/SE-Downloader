@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="browser_extension/icons/SEDownloader.ico" width="96" alt="SE Downloader Logo"/>
+<img src="browser_extension/icons/SEDownloader.png" width="96" alt="SE Downloader Logo"/>
 
 # SE Downloader
 
