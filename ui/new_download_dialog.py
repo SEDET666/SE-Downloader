@@ -83,11 +83,18 @@ class NewDownloadDialog(MessageBoxBase):
         return True
 
     def get_task_config(self) -> dict:
+        # Parse cookie string into dict for DownloadManager.add_task()
+        cookies = {}
+        for pair in self.cookie_edit.text().strip().split(";"):
+            pair = pair.strip()
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                cookies[k.strip()] = v.strip()
         return {
-            "url": self.url_edit.text().strip(),
-            "filename": self.filename_edit.text().strip(),
+            "url":       self.url_edit.text().strip(),
+            "filename":  self.filename_edit.text().strip(),
             "save_path": self.save_path_edit.text().strip(),
-            "threads": self.threads_spin.value(),
-            "referer": self.referer_edit.text().strip(),
-            "cookies_str": self.cookie_edit.text().strip(),
+            "threads":   self.threads_spin.value(),
+            "referer":   self.referer_edit.text().strip(),
+            "cookies":   cookies,
         }

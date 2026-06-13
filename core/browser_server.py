@@ -58,10 +58,12 @@ class BrowserIntegrationHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _cors(self):
-        self.send_header("Access-Control-Allow-Origin",  "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Max-Age",       "86400")
+        self.send_header("Access-Control-Allow-Origin",          "*")
+        self.send_header("Access-Control-Allow-Methods",         "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers",         "Content-Type")
+        self.send_header("Access-Control-Max-Age",               "86400")
+        # Required for Chrome MV3 Private Network Access
+        self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def log_message(self, fmt, *args):
         import logging

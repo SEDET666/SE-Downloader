@@ -44,7 +44,7 @@ class AboutPage(QWidget):
         cl.setSpacing(6)
         cl.addWidget(SubtitleLabel("SE Downloader"))
         cl.addWidget(BodyLabel(t("about_desc")))
-        cl.addWidget(CaptionLabel(f"{t('version')} 1.0.0"))
+        cl.addWidget(CaptionLabel(f"{t('version')} 1.1.0"))
         cl.addWidget(CaptionLabel(t("built_with")))
         L.addWidget(card)
 

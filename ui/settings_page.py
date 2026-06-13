@@ -6,7 +6,7 @@ from qfluentwidgets import (
     CheckBox,
     ColorPickerButton,
     ScrollArea, TitleLabel, BodyLabel, CaptionLabel, SubtitleLabel,
-    SettingCard, SettingCardGroup,
+    SettingCard,
     PushSettingCard, SwitchSettingCard,
     PrimaryPushButton, PushButton,
     LineEdit, SpinBox, ComboBox, TextEdit,
@@ -15,6 +15,7 @@ from qfluentwidgets import (
 )
 from core.settings import AppSettings
 from core.i18n import t, set_language, SUPPORTED_LANGUAGES, get_language
+from ui.collapsible_group import CollapsibleSettingGroup
 
 
 # ── Reusable card helpers ─────────────────────────────────────────────────────
@@ -62,6 +63,25 @@ class SwitchSettingCardCustom(SettingCard):
     def setChecked(self, v):     self._sw.setChecked(bool(v))
 
 
+
+class _TextAreaCard(SettingCard):
+    """SettingCard with a TextEdit below the title row."""
+    def __init__(self, icon, title, desc, placeholder="", parent=None):
+        super().__init__(icon, title, desc, parent)
+        self.edit = TextEdit(self)
+        self.edit.setPlaceholderText(placeholder)
+        self.edit.setFixedHeight(72)
+        # SettingCard uses hBoxLayout; we need to insert a sub-VBox
+        vl = QVBoxLayout()
+        vl.setContentsMargins(0, 4, 16, 8)
+        vl.setSpacing(0)
+        vl.addWidget(self.edit)
+        self.hBoxLayout.addLayout(vl)
+
+    def value(self): return self.edit.toPlainText()
+    def setValue(self, v): self.edit.setPlainText(str(v) if v else "")
+
+
 # ── Page ─────────────────────────────────────────────────────────────────────
 
 class SettingsPage(QWidget):
@@ -72,6 +92,8 @@ class SettingsPage(QWidget):
         self.setAutoFillBackground(False)
         self.settings = settings
         self._setup_ui()
+        self._restore_group_states()
+        self._connect_group_signals()
         self._load()
 
     def _setup_ui(self):
@@ -97,7 +119,8 @@ class SettingsPage(QWidget):
         L.addWidget(TitleLabel(t("settings_title")))
 
         # ── 常规 ────────────────────────────────────────────
-        g = SettingCardGroup(t("general"), box)
+        self.g_general = CollapsibleSettingGroup(FluentIcon.SETTING, t("general"), box, expanded=True)
+        g = self.g_general
 
         self.save_path_card = PushSettingCard(
             t("browse"), FluentIcon.FOLDER, t("default_save_path"),
@@ -160,7 +183,8 @@ class SettingsPage(QWidget):
         L.addWidget(g)
 
         # ── 网络 ────────────────────────────────────────────
-        g = SettingCardGroup(t("network"), box)
+        self.g_network = CollapsibleSettingGroup(FluentIcon.WIFI, t("network"), box, expanded=False)
+        g = self.g_network
 
         self.ua_card = LineSettingCard(
             FluentIcon.GLOBE, "User-Agent",
@@ -190,32 +214,30 @@ class SettingsPage(QWidget):
         L.addWidget(g)
 
         # ── Cookie & 请求头 ──────────────────────────────────
-        g = SettingCardGroup(t("cookies_headers"), box)
+        self.g_cookies = CollapsibleSettingGroup(FluentIcon.FINGERPRINT, t("cookies_headers"), box, expanded=False)
+        g = self.g_cookies
 
-        cookie_card = SettingCard(
-            FluentIcon.FINGERPRINT, t("global_cookie"),
-            t("global_cookie_desc")
+        # Cookie card: title row + TextEdit below
+        cookie_card = _TextAreaCard(
+            FluentIcon.FINGERPRINT, t("global_cookie"), t("global_cookie_desc"),
+            "key=value; key2=value2; ..."
         )
+        self.cookie_edit = cookie_card.edit
         g.addSettingCard(cookie_card)
-        self.cookie_edit = TextEdit()
-        self.cookie_edit.setPlaceholderText("key=value; key2=value2; ...")
-        self.cookie_edit.setFixedHeight(72)
 
-        hdr_card = SettingCard(
-            FluentIcon.CODE, t("custom_headers"),
-            'JSON 格式，例如 {"Authorization": "Bearer token"}'
+        # Headers card: title row + TextEdit below
+        hdr_card = _TextAreaCard(
+            FluentIcon.CODE, t("custom_headers"), t("custom_headers_desc"),
+            '{"X-Custom-Header": "value"}'
         )
+        self.headers_edit = hdr_card.edit
         g.addSettingCard(hdr_card)
-        self.headers_edit = TextEdit()
-        self.headers_edit.setPlaceholderText('{"X-Custom-Header": "value"}')
-        self.headers_edit.setFixedHeight(72)
 
         L.addWidget(g)
-        L.addWidget(self.cookie_edit)
-        L.addWidget(self.headers_edit)
 
         # ── 代理 ────────────────────────────────────────────
-        g = SettingCardGroup(t("proxy"), box)
+        self.g_proxy = CollapsibleSettingGroup(FluentIcon.VPN, t("proxy"), box, expanded=False)
+        g = self.g_proxy
 
         self.proxy_sw = SwitchSettingCardCustom(
             FluentIcon.VPN, t("enable_proxy"),
@@ -233,7 +255,8 @@ class SettingsPage(QWidget):
         L.addWidget(g)
 
         # ── 限速 ────────────────────────────────────────────
-        g = SettingCardGroup(t("speed_limit"), box)
+        self.g_speed = CollapsibleSettingGroup(FluentIcon.SPEED_OFF, t("speed_limit"), box, expanded=False)
+        g = self.g_speed
 
         self.speed_sw = SwitchSettingCardCustom(
             FluentIcon.SPEED_HIGH, t("enable_speed_limit"),
@@ -250,7 +273,8 @@ class SettingsPage(QWidget):
         L.addWidget(g)
 
         # ── 浏览器接管 ───────────────────────────────────────
-        g = SettingCardGroup(t("browser_integration"), box)
+        self.g_browser = CollapsibleSettingGroup(FluentIcon.GLOBE, t("browser_integration"), box, expanded=False)
+        g = self.g_browser
 
         self.browser_sw = SwitchSettingCardCustom(
             FluentIcon.GLOBE, t("enable_browser"),
@@ -274,8 +298,29 @@ class SettingsPage(QWidget):
 
         L.addWidget(g)
 
+        # ── B站设置 ──────────────────────────────────────────
+        self.g_bili = CollapsibleSettingGroup(FluentIcon.VIDEO, "B站 (Bilibili)", box, expanded=False)
+        g = self.g_bili
+
+        self.bili_cookie_card = _TextAreaCard(
+            FluentIcon.FINGERPRINT, "B站 Cookie",
+            "SESSDATA=xxx; bili_jct=xxx; DedeUserID=xxx  (用于解锁高清画质)",
+            "SESSDATA=xxxxxx; bili_jct=xxxxxx; DedeUserID=xxxxxx"
+        )
+        self.bili_cookie_card.edit.setFixedHeight(56)
+        g.addSettingCard(self.bili_cookie_card)
+
+        bili_note = SettingCard(
+            FluentIcon.INFO, "如何获取 Cookie",
+            "浏览器登录B站 → F12 → Application → Cookies → bilibili.com"
+        )
+        g.addSettingCard(bili_note)
+
+        L.addWidget(g)
+
         # ── 通知 ────────────────────────────────────────────
-        g = SettingCardGroup(t("notifications"), box)
+        self.g_notif = CollapsibleSettingGroup(FluentIcon.RINGER, t("notifications"), box, expanded=False)
+        g = self.g_notif
 
         self.notify_done = SwitchSettingCardCustom(
             FluentIcon.COMPLETED, t("notify_complete"),
@@ -292,7 +337,8 @@ class SettingsPage(QWidget):
         L.addWidget(g)
 
         # ── 文件处理 ─────────────────────────────────────────
-        g = SettingCardGroup(t("file_handling"), box)
+        self.g_files = CollapsibleSettingGroup(FluentIcon.FOLDER, t("file_handling"), box, expanded=False)
+        g = self.g_files
 
         self.auto_rename = SwitchSettingCardCustom(
             FluentIcon.EDIT, t("auto_rename"),
@@ -312,6 +358,44 @@ class SettingsPage(QWidget):
         L.addLayout(row)
 
     # ── Load / Save ───────────────────────────────────────────
+    # ── Group state persistence ──────────────────────────────────────────────
+
+    _GROUP_ATTRS = ["g_general","g_network","g_cookies","g_proxy",
+                    "g_speed","g_browser","g_bili","g_notif","g_files"]
+
+    def _restore_group_states(self):
+        """Restore expand/collapse state from QSettings."""
+        from PySide6.QtCore import QSettings
+        qs = QSettings("SEDownloader", "SE Downloader")
+        for key in self._GROUP_ATTRS:
+            group = getattr(self, key, None)
+            if group is None:
+                continue
+            saved = qs.value(f"settings_group/{key}")
+            if saved is None:
+                continue
+            expanded = str(saved).lower() in ("true", "1")
+            if expanded != group._expanded:
+                group._expanded = expanded
+                group._content_wrap.setVisible(expanded)
+                group._divider.setVisible(expanded)
+                group._arrow.set_angle(90.0 if expanded else 0.0)
+
+    def _connect_group_signals(self):
+        """Connect expand/collapse signals to save state."""
+        for key in self._GROUP_ATTRS:
+            group = getattr(self, key, None)
+            if group:
+                # Capture key in closure
+                group.expanded_changed.connect(
+                    lambda expanded, k=key: self._save_group_state(k, expanded)
+                )
+
+    def _save_group_state(self, key: str, expanded: bool):
+        from PySide6.QtCore import QSettings
+        qs = QSettings("SEDownloader", "SE Downloader")
+        qs.setValue(f"settings_group/{key}", expanded)
+
     def _on_color_follow_changed(self, state):
         follow = bool(state)
         self.color_btn.setEnabled(not follow)
@@ -347,6 +431,7 @@ class SettingsPage(QWidget):
         self.notify_done.setChecked(s.notify_on_complete)
         self.notify_err.setChecked(s.notify_on_error)
         self.auto_rename.setChecked(s.auto_rename_conflict)
+        self.bili_cookie_card.setValue(s.bilibili_cookie or "")
         # Color — "follow system" means theme_color is empty
         follow_sys = not s.theme_color
         self.color_follow_sys.setChecked(follow_sys)
@@ -393,6 +478,7 @@ class SettingsPage(QWidget):
         s.notify_on_complete       = self.notify_done.isChecked()
         s.notify_on_error          = self.notify_err.isChecked()
         s.auto_rename_conflict     = self.auto_rename.isChecked()
+        s.bilibili_cookie          = self.bili_cookie_card.value().strip()
         try:
             if self.color_follow_sys.isChecked():
                 s.theme_color = ""   # empty = follow system accent color

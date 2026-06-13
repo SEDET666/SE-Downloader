@@ -24,7 +24,13 @@ class _Bridge(QObject):
 
 class MainWindow(FluentWindow):
     def __init__(self):
+        # Hide window during construction to prevent flash
         super().__init__()
+        self.setAttribute(Qt.WA_DontShowOnScreen, True)
+        # Set title and minimum size immediately
+        self.setWindowTitle("SE Downloader")
+        self.setMinimumSize(960, 640)
+
         self.settings = AppSettings.load()
         self.manager  = DownloadManager(self.settings)
         self.browser_server = None
@@ -33,27 +39,29 @@ class MainWindow(FluentWindow):
         self._bridge = _Bridge(self)
         self._bridge.download_received.connect(
             self._handle_browser_download,
-            Qt.ConnectionType.QueuedConnection   # explicit queued: always async to main thread
+            Qt.ConnectionType.QueuedConnection
         )
 
-        self._init_window()
         self._init_navigation()
         self._apply_theme(self.settings.theme)
         self._init_browser_server()
 
+        # Resize and center AFTER navigation is fully built
+        self.resize(1200, 780)
+        self._center_on_screen()
+        # Re-enable normal display
+        self.setAttribute(Qt.WA_DontShowOnScreen, False)
+
+    def _center_on_screen(self):
+        screen = QApplication.primaryScreen().availableGeometry()
+        self.move(
+            screen.x() + (screen.width()  - self.width())  // 2,
+            screen.y() + (screen.height() - self.height()) // 2,
+        )
+
     def _apply_theme(self, theme_str: str):
         mapping = {"auto": Theme.AUTO, "light": Theme.LIGHT, "dark": Theme.DARK}
         setTheme(mapping.get(theme_str, Theme.AUTO))
-
-    def _init_window(self):
-        self.setWindowTitle("SE Downloader")
-        self.setMinimumSize(960, 640)
-        self.resize(1200, 780)
-        screen = QApplication.primaryScreen().geometry()
-        self.move(
-            (screen.width()  - self.width())  // 2,
-            (screen.height() - self.height()) // 2,
-        )
 
     def _init_navigation(self):
         self.queue_page = DownloadQueuePage(self.manager, self.settings, self)
@@ -183,7 +191,25 @@ class MainWindow(FluentWindow):
 
     # ── close ─────────────────────────────────────────────────────────────────
 
+    def showEvent(self, event):
+        """Restore saved window geometry on first show."""
+        super().showEvent(event)
+        geo = self.settings.window_geometry if hasattr(self.settings, "window_geometry") else None
+        if geo:
+            try:
+                from PySide6.QtCore import QByteArray
+                self.restoreGeometry(QByteArray.fromHex(geo.encode()))
+            except Exception:
+                pass
+
     def closeEvent(self, event):
+        # Save window geometry before closing
+        try:
+            geo_hex = bytes(self.saveGeometry().toHex()).decode()
+            self.settings.window_geometry = geo_hex
+            self.settings.save()
+        except Exception:
+            pass
         from core.downloader import DownloadStatus
         from ui.download_queue_page import _three_button_dialog
         active = [t for t in self.manager.get_all_tasks()

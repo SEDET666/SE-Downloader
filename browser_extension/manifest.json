@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SE Downloader",
-  "version": "5.0.0",
+  "version": "5.1.0",
   "description": "Intercept browser downloads and send to SE Downloader (Chrome & Edge)",
 
   "permissions": [
@@ -12,9 +12,9 @@
     "notifications",
     "cookies",
     "tabs",
+    "alarms",
     "webRequest",
-    "declarativeNetRequest",
-    "declarativeNetRequestWithHostAccess"
+    "declarativeNetRequest"
   ],
 
   "host_permissions": [

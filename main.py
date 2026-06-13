@@ -94,7 +94,7 @@ if __name__ == "__main__":
     )
     app = QApplication(sys.argv)
     app.setApplicationName("SE Downloader")
-    app.setApplicationVersion("1.0.0")
+    app.setApplicationVersion("1.1.0")
     app.setOrganizationName("SEDownloader")
 
     from qfluentwidgets import setTheme, Theme, setThemeColor

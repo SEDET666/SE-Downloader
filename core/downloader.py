@@ -18,13 +18,57 @@ _single() resume_from fix:
 """
 
 import os, re, json, time, shutil, logging, threading, traceback, urllib.parse
+import ssl
+import warnings
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Callable, Dict
 
 import requests
+import urllib3
 from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from urllib3.util.ssl_ import create_urllib3_context
+
+# Suppress InsecureRequestWarning globally — user can re-enable via verify_ssl setting
+warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
+
+
+class _LenientSSLAdapter(HTTPAdapter):
+    """
+    TLS adapter that tolerates servers with quirky SSL implementations:
+    - UNEXPECTED_EOF_WHILE_READING: some CDNs close the connection mid-TLS
+    - TLS version mismatches: allow TLS 1.0+ instead of requiring 1.2+
+    - Works like a browser: set SECLEVEL=1, disable hostname check only when
+      verify_ssl=False, otherwise verify normally
+    """
+
+    def __init__(self, verify_ssl: bool = True, **kwargs):
+        self._verify_ssl = verify_ssl
+        super().__init__(**kwargs)
+
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = create_urllib3_context()
+        # Allow older TLS and weaker ciphers like a browser does
+        ctx.options |= ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3
+        ctx.set_ciphers("DEFAULT:@SECLEVEL=1")
+        # Don't check hostname when verify=False
+        if not self._verify_ssl:
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        kwargs["ssl_context"] = ctx
+        return super().init_poolmanager(*args, **kwargs)
+
+    def proxy_manager_for(self, proxy, **kwargs):
+        ctx = create_urllib3_context()
+        ctx.options |= ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3
+        ctx.set_ciphers("DEFAULT:@SECLEVEL=1")
+        if not self._verify_ssl:
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+        kwargs["ssl_context"] = ctx
+        return super().proxy_manager_for(proxy, **kwargs)
 
 log = logging.getLogger(__name__)
 
@@ -125,9 +169,15 @@ class DownloadTask:
     timeout:     int   = 30
     verify_ssl:  bool  = True
     referer:     str   = ""
+    # Bilibili DASH: separate video+audio streams that need FFmpeg merge
+    bili_audio_url:   str = ""   # non-empty = this is a bili task
+    bili_audio_file:  str = ""   # temp audio filename
+    bili_merge_status: str = ""  # "merging" | "merged" | "merge_failed"
 
     @property
     def full_path(self) -> str: return os.path.join(self.save_path, self.filename)
+    @property
+    def is_bili(self) -> bool: return bool(self.bili_audio_url)
     @property
     def resume_path(self) -> str: return self.full_path + ".seresume"
     @property
@@ -209,17 +259,26 @@ class SegmentedDownloader:
 
     def _make_session(self) -> requests.Session:
         s = requests.Session()
-        a = HTTPAdapter(pool_connections=max(4, self.task.threads),
-                        pool_maxsize=max(4, self.task.threads) + 4)
-        s.mount("http://", a); s.mount("https://", a)
+        n = max(4, self.task.threads)
+        a = _LenientSSLAdapter(
+            verify_ssl=self.task.verify_ssl,
+            pool_connections=n,
+            pool_maxsize=n + 4,
+        )
+        s.mount("http://", a)
+        s.mount("https://", a)
         h = dict(self.task.headers)
         if "User-Agent" not in h:
             h["User-Agent"] = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                                "AppleWebKit/537.36 (KHTML, like Gecko) "
                                "Chrome/125.0.0.0 Safari/537.36")
-        if self.task.referer: h["Referer"] = self.task.referer
+        if self.task.referer and "Referer" not in h:
+            h["Referer"] = self.task.referer
         s.headers.update(h)
-        if self.task.cookies: s.cookies.update(self.task.cookies)
+        # Only use cookies dict if Cookie header not already set in headers
+        # (bili tasks put Cookie string directly in headers)
+        if self.task.cookies and "Cookie" not in h:
+            s.cookies.update(self.task.cookies)
         if self.task.proxy: s.proxies = {"http": self.task.proxy, "https": self.task.proxy}
         s.verify = self.task.verify_ssl
         return s
@@ -381,7 +440,8 @@ class SegmentedDownloader:
         collect info from the real GET response headers.
         """
         self._accept_range = False
-        PROBE_TO = (min(3, self.task.timeout), min(5, self.task.timeout))  # (connect, read)
+        # Longer probe timeout for slow CDNs (e.g. B站)
+        PROBE_TO = (min(5, self.task.timeout), min(15, self.task.timeout))  # (connect, read)
         filename  = self.task.filename or ""
         final_url = self.task.url
         file_size = 0

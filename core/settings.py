@@ -26,6 +26,8 @@ class AppSettings:
     theme: str = "auto"  # auto, light, dark
     theme_color: str = "#0078D4"  # accent color
     language: str = "en_US"  # en_US, zh_CN, ru_RU
+    window_geometry: str = ""   # hex-encoded QByteArray, saved on close
+    bilibili_cookie: str = ""   # SESSDATA=xxx; bili_jct=xxx; DedeUserID=xxx
     show_tray_icon: bool = True
     minimize_to_tray: bool = True
     start_on_boot: bool = False

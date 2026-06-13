@@ -16,6 +16,8 @@ from core.i18n import t
 from core.manager    import DownloadManager
 from ui.download_item import DownloadItemWidget
 from ui.new_download_dialog import NewDownloadDialog
+from ui.bilibili_dialog import BilibiliDialog, BiliConfirmDialog
+from ui.bili_item import BiliItemWidget
 
 
 class _Bridge(QObject):
@@ -87,6 +89,8 @@ class DownloadQueuePage(QWidget):
         self.manager  = manager
         self.settings = settings
         self._widgets: dict = {}
+        self._bili_widgets: dict = {}  # video_task_id → BiliItemWidget
+        self._bili_widgets: dict = {}  # video_task_id → BiliItemWidget
         self._filter  = "all"
 
         self._bridge = _Bridge(self)
@@ -118,6 +122,12 @@ class DownloadQueuePage(QWidget):
         self.new_btn = PrimaryPushButton(FluentIcon.DOWNLOAD, t("new_download"))
         self.new_btn.clicked.connect(self._do_new)
         hdr.addWidget(self.new_btn)
+
+        self.bili_btn = PushButton("📺 B站")
+        self.bili_btn.setFixedWidth(80)
+        self.bili_btn.setToolTip("解析 B站视频")
+        self.bili_btn.clicked.connect(self._on_bilibili)
+        hdr.addWidget(self.bili_btn)
 
         self.pause_all_btn = PushButton(FluentIcon.PAUSE, t("pause_all"))
         self.pause_all_btn.clicked.connect(self.manager.pause_all)
@@ -183,11 +193,36 @@ class DownloadQueuePage(QWidget):
 
     @Slot(object)
     def _on_added(self, task: DownloadTask):
-        self._add_card(task)
+        # Bili audio tasks: attach to existing bili card, don't create new card
+        if task.is_bili:
+            # This is the VIDEO task — create bili card
+            self._add_bili_card(task)
+        elif self._is_bili_audio(task.task_id):
+            # This is the AUDIO task of a bili pair — skip, bili card handles it
+            pass
+        else:
+            self._add_card(task)
         self._sync_stats()
 
     @Slot(object)
     def _on_updated(self, task: DownloadTask):
+        # Check if this is a bili video task
+        bw = self._bili_widgets.get(task.task_id)
+        if bw:
+            # Update bili card with both tasks
+            audio_task = self._get_bili_audio(task.task_id)
+            if audio_task:
+                bw.update_tasks(task, audio_task)
+            self._sync_stats()
+            return
+        # Check if this is a bili audio task — update parent card
+        vid_id = self._find_bili_video_for_audio(task.task_id)
+        if vid_id:
+            bw = self._bili_widgets.get(vid_id)
+            vid_task = self.manager.get_task(vid_id)
+            if bw and vid_task:
+                bw.update_tasks(vid_task, task)
+            return
         w = self._widgets.get(task.task_id)
         if w:
             w.update_from_task(task)
@@ -196,6 +231,10 @@ class DownloadQueuePage(QWidget):
 
     @Slot(object)
     def _on_removed(self, task: DownloadTask):
+        bw = self._bili_widgets.pop(task.task_id, None)
+        if bw:
+            self._queue_l.removeWidget(bw)
+            bw.deleteLater()
         w = self._widgets.pop(task.task_id, None)
         if w:
             self._queue_l.removeWidget(w)
@@ -203,6 +242,84 @@ class DownloadQueuePage(QWidget):
         self._sync_stats()
 
     # ── card management ───────────────────────────────────────────────────────
+
+    def _is_bili_audio(self, task_id: str) -> bool:
+        """Check if task_id is an audio task in any bili pair."""
+        pairs = getattr(self.manager, "_bili_pairs", {})
+        return task_id in pairs.values()
+
+    def _find_bili_video_for_audio(self, audio_id: str):
+        """Return video task_id for the given audio task_id."""
+        pairs = getattr(self.manager, "_bili_pairs", {})
+        for vid, aud in pairs.items():
+            if aud == audio_id:
+                return vid
+        return None
+
+    def _get_bili_audio(self, video_id: str):
+        """Return audio DownloadTask for a bili video task."""
+        pairs = getattr(self.manager, "_bili_pairs", {})
+        audio_id = pairs.get(video_id)
+        if audio_id:
+            return self.manager.get_task(audio_id)
+        return None
+
+    def _add_bili_card(self, video_task: DownloadTask):
+        audio_task = self._get_bili_audio(video_task.task_id)
+        if not audio_task:
+            # Fallback: treat as normal task if audio not found
+            self._add_card(video_task)
+            return
+        w = BiliItemWidget(video_task, audio_task, self._queue_w)
+        w.cancel_requested.connect(self._on_cancel_bili)
+        w.remove_requested.connect(self._on_remove_bili)
+        w.open_folder_requested.connect(self._open_folder)
+        self._bili_widgets[video_task.task_id] = w
+        # Also register in _widgets so stats/filter work
+        self._widgets[video_task.task_id] = w
+        self._queue_l.insertWidget(self._queue_l.count() - 1, w)
+        self._sync_visibility()
+
+    def _on_cancel_bili(self, video_task_id: str):
+        pairs = getattr(self.manager, "_bili_pairs", {})
+        audio_id = pairs.get(video_task_id)
+        self.manager.cancel_task(video_task_id)
+        if audio_id:
+            self.manager.cancel_task(audio_id)
+
+    def _on_remove_bili(self, video_task_id: str):
+        from core.downloader import DownloadStatus
+        video_task = self.manager.get_task(video_task_id)
+        pairs = getattr(self.manager, "_bili_pairs", {})
+        audio_id = pairs.get(video_task_id)
+        audio_task = self.manager.get_task(audio_id) if audio_id else None
+
+        # If merged (fully complete) — just remove, no file deletion dialog
+        merged = (video_task and video_task.bili_merge_status == "merged")
+        both_done = (
+            video_task and video_task.status == DownloadStatus.COMPLETED and
+            (not audio_task or audio_task.status == DownloadStatus.COMPLETED)
+        )
+
+        if merged or both_done:
+            delete = False
+        else:
+            result = _three_button_dialog(
+                self, "移除B站任务",
+                "是否同时删除已下载的视频/音频临时文件？",
+                btn_yes="删除文件",
+                btn_no="仅移除",
+                btn_cancel=t("misclick"),
+            )
+            if result is None:
+                return
+            delete = result
+
+        self.manager.remove_task(video_task_id, delete_files=delete)
+        if audio_id:
+            self.manager.remove_task(audio_id, delete_files=delete)
+        self._bili_widgets.pop(video_task_id, None)
+        self._widgets.pop(video_task_id, None)
 
     def _add_card(self, task: DownloadTask):
         w = DownloadItemWidget(task, self._queue_w)
@@ -216,8 +333,8 @@ class DownloadQueuePage(QWidget):
         self._apply_filter(w)
         self._sync_visibility()
 
-    def _apply_filter(self, w: DownloadItemWidget):
-        s = w.task.status
+    def _apply_filter(self, w):
+        s = self._get_task(w).status
         f = self._filter
         vis = (
             True if f == "all" else
@@ -228,10 +345,16 @@ class DownloadQueuePage(QWidget):
         )
         w.setVisible(vis)
 
+    def _get_task(self, w):
+        """Get the primary task from any widget type."""
+        if hasattr(w, "video_task"):  # BiliItemWidget
+            return w.video_task
+        return w.task
+
     def _sync_stats(self):
         total  = len(self._widgets)
         active = sum(1 for w in self._widgets.values()
-                     if w.task.status == DownloadStatus.DOWNLOADING)
+                     if self._get_task(w).status == DownloadStatus.DOWNLOADING)
         self.stat_lbl.setText(t("tasks_count", total=total, active=active))
         self._sync_visibility()
 
@@ -248,6 +371,31 @@ class DownloadQueuePage(QWidget):
         self._filter = key
         for w in self._widgets.values():
             self._apply_filter(w)
+
+    def _on_bilibili(self):
+        dlg = BilibiliDialog(self.settings, self)
+        dlg.download_ready.connect(self._on_bilibili_ready)
+        dlg.exec()
+
+    def _on_bilibili_ready(self, info: dict, stream: dict, save_path: str):
+        """Show confirmation dialog with video URL + audio URL."""
+        dlg = BiliConfirmDialog(info, stream, save_path, self)
+        dlg.confirmed.connect(self._on_bilibili_confirmed)
+        dlg.exec()
+
+    def _on_bilibili_confirmed(self, stream: dict):
+        """User confirmed — add bili task pair to manager."""
+        import os
+        save_path = stream.get("save_path", self.settings.default_save_path)
+        os.makedirs(save_path, exist_ok=True)
+        self.manager.add_bili_task(
+            video_url   = stream["video_url"],
+            audio_url   = stream.get("audio_url", ""),
+            save_path   = save_path,
+            title       = stream.get("_title", "bilibili_video"),
+            bvid        = stream.get("_bvid", ""),
+            cookies_str = stream.get("_cookies", ""),
+        )
 
     def _do_new(self):
         dlg = NewDownloadDialog(parent=self, settings=self.settings)
@@ -331,19 +479,13 @@ class DownloadQueuePage(QWidget):
 
     def add_external_task(self, url: str, referer: str = "", cookies_str: str = ""):
         dlg = NewDownloadDialog(url=url, parent=self, settings=self.settings)
+        # Pre-fill referer if provided by browser extension
+        if referer and not dlg.referer_edit.text():
+            dlg.referer_edit.setText(referer)
+        # Pre-fill cookies from browser extension
+        if cookies_str and not dlg.cookie_edit.text():
+            dlg.cookie_edit.setText(cookies_str)
         if dlg.exec():
             cfg = dlg.get_task_config()
-            merged: dict = {}
-            for src in (cookies_str, cfg.get("cookies_str","")):
-                for pair in (src or "").split(";"):
-                    pair = pair.strip()
-                    if "=" in pair:
-                        k, v = pair.split("=", 1)
-                        merged[k.strip()] = v.strip()
-            self.manager.add_task(
-                url=cfg["url"], save_path=cfg["save_path"],
-                filename=cfg.get("filename",""),
-                threads=cfg.get("threads", self.settings.default_threads),
-                cookies=merged or None,
-                referer=referer or cfg.get("referer",""),
-            )
+            if cfg.get("url"):
+                self.manager.add_task(**cfg)

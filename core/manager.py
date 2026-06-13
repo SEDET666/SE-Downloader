@@ -1,4 +1,5 @@
 import uuid, logging, threading, time, os
+from core.bili_downloader import merge_bili
 from typing import Dict, List, Optional, Callable
 from collections import deque
 from core.downloader import DownloadTask, DownloadStatus, SegmentedDownloader
@@ -15,6 +16,8 @@ class DownloadManager:
         self._downloaders: Dict[str, SegmentedDownloader] = {}
         self._queue: deque = deque()
         self._lock  = threading.Lock()
+        # bili: video_task_id → audio_task_id
+        self._bili_pairs: Dict[str, str] = {}
         self.on_task_added:   Optional[Callable] = None
         self.on_task_updated: Optional[Callable] = None
         self.on_task_removed: Optional[Callable] = None
@@ -84,6 +87,28 @@ class DownloadManager:
         self._safe_cb(self.on_task_added, task)
         self.save()
         return task.task_id
+
+    def add_bili_task(self, video_url: str, audio_url: str,
+                       save_path: str, title: str, bvid: str,
+                       cookies_str: str = "") -> str:
+        """Add a Bilibili video+audio task pair. Returns video task_id."""
+        from core.bili_downloader import make_bili_tasks
+        import os
+        os.makedirs(save_path, exist_ok=True)
+        video_task, audio_task = make_bili_tasks(
+            video_url, audio_url, save_path, title, bvid, self.settings,
+            cookies_str=cookies_str,
+        )
+        with self._lock:
+            self._tasks[video_task.task_id] = video_task
+            self._tasks[audio_task.task_id] = audio_task
+            self._queue.append(video_task.task_id)
+            self._queue.append(audio_task.task_id)
+            self._bili_pairs[video_task.task_id] = audio_task.task_id
+        self._safe_cb(self.on_task_added, video_task)
+        self._safe_cb(self.on_task_added, audio_task)
+        self.save()
+        return video_task.task_id
 
     def pause_task(self, task_id):
         with self._lock: dl = self._downloaders.get(task_id)
@@ -209,6 +234,37 @@ class DownloadManager:
         if task.status in (DownloadStatus.COMPLETED, DownloadStatus.FAILED,
                            DownloadStatus.CANCELLED):
             with self._lock: self._downloaders.pop(task.task_id, None)
+        self._safe_cb(self.on_task_updated, task)
+        self.save()
+
+        # Bili: check if both video and audio are done → merge
+        if task.status == DownloadStatus.COMPLETED and task.is_bili:
+            self._check_bili_merge(task)
+        # Bili: check if this is an audio task whose video is done
+        if task.status == DownloadStatus.COMPLETED:
+            self._check_bili_merge_as_audio(task)
+
+    def _check_bili_merge(self, video_task):
+        """Called when video task completes — check if audio is also done."""
+        audio_id = self._bili_pairs.get(video_task.task_id)
+        if not audio_id:
+            return
+        audio_task = self._tasks.get(audio_id)
+        if audio_task and audio_task.status == DownloadStatus.COMPLETED:
+            log.info("Both bili streams done, merging: %s", video_task.filename)
+            merge_bili(video_task, on_status_change=self._safe_status_notify)
+
+    def _check_bili_merge_as_audio(self, audio_task):
+        """Called when any task completes — check if it's an audio whose video is done."""
+        for vid_id, aud_id in list(self._bili_pairs.items()):
+            if aud_id == audio_task.task_id:
+                video_task = self._tasks.get(vid_id)
+                if video_task and video_task.status == DownloadStatus.COMPLETED:
+                    log.info("Both bili streams done (audio finished last), merging")
+                    merge_bili(video_task, on_status_change=self._safe_status_notify)
+                break
+
+    def _safe_status_notify(self, task):
         self._safe_cb(self.on_task_updated, task)
         self.save()
 

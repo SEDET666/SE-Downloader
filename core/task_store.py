@@ -31,6 +31,9 @@ def save_tasks(tasks: List[DownloadTask]):
                 "retries": t.retries, "timeout": t.timeout,
                 "verify_ssl": t.verify_ssl, "referer": t.referer,
                 "single_thread_reason": t.single_thread_reason,
+                "bili_audio_url":   t.bili_audio_url,
+                "bili_audio_file":  t.bili_audio_file,
+                "bili_merge_status": t.bili_merge_status,
             })
         with open(STORE_PATH, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
@@ -65,6 +68,9 @@ def load_tasks() -> List[DownloadTask]:
                 retries=d.get("retries",3), timeout=d.get("timeout",30),
                 verify_ssl=d.get("verify_ssl",True), referer=d.get("referer",""),
                 single_thread_reason=d.get("single_thread_reason",""),
+                bili_audio_url=d.get("bili_audio_url",""),
+                bili_audio_file=d.get("bili_audio_file",""),
+                bili_merge_status=d.get("bili_merge_status",""),
             )
             tasks.append(t)
     except Exception:
